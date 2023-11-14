@@ -8,7 +8,7 @@ int executeCommand(shellData *data)
 {
 	int executionStatus = 0;
 	int status;
-	pid_t piddd;
+	pid_t pidd;
 
 	executionStatus = checkBuiltIns(data);
 	if (executonStatus != -1)
