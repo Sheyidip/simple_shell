@@ -1,160 +1,163 @@
 #include "shell.h"
-/**
- * executeExit - Exit the program with a status.
- * @data: Struct for the program's data.
- * Return: Zero on success or other number if declared in the arguments.
- */
-int executeExit(shellData *data)
-{
-	int index;
 
-	if (data->tokens[1] != NULL)
-	{
-		for (index = 0; data->tokens[1][index]; index++)
-		{
-			if ((data->tokens[1][index] < '0' || data->tokens[1][index] > '9') &&
-					data->tokens[1][index] != '+') {
-				setErrnoValue(2);
-				return (2);
-			}
-		}
-		setErrnoValue(_atoi(data->tokens[1]));
-	}
-	freeAllData(data);
-	exit(getErrnoValue());
-}
 /**
- * executeChangeDirectory - Change the current directory.
- * @data: Struct for the program's data.
- * Return: Zero on success or other number if declared in the arguments.
+ * execute_command - function that create fork and execute command
+ * @args: the command to execute
+ * @check: the number of token return
+ * @last_status: the variable that keeps the value of return
+ * @envp: parent environment
+ * Return: 0 for success
  */
-int executeChangeDirectory(shellData *data)
+int execute_command(char *args[], int check, int *last_status, char *envp[])
 {
-	char *homeDir = getEnvironmentVariable("HOME", data);
-	char *oldDir = NULL;
-	char oldDirectory[128] = {0};
-	int errorCode = (0);
+	int j;
+	pid_t child_pid = fork();
 
-	if (data->tokens[1])
+	if (child_pid < 0)
+		return (-1);
+	if (child_pid == 0)
 	{
-		if (compareStrings(data->tokens[1], "-", 0))
+		char **exec_Args = malloc((check + 1) * sizeof(char *));
+
+		if (exec_Args == NULL)
+			return (-1);
+		for (j = 0; j < check; j++)
 		{
-			oldDir = getEnvironmentVariable("OLDPWD", data);
-			if (oldDir)
-			{
-				errorCode = setWorkingDirectory(data, oldDir);
-			}
-			printMessage(getEnvironmentVariable("PWD", data));
-			printMessage("\n");
-			return (errorCode);
+			exec_Args[j] = s_strdup(args[j]);
+
+			if (exec_Args[j] == NULL)
+				return (-1);
 		}
-		else
+		exec_Args[check] = NULL;
+
+		if (exec_command(exec_Args[0], exec_Args, envp) == -1)
 		{
-			return (setWorkingDirectory(data, data->tokens[1]));
+			perror(exec_Args[0]);
+			exit(2);
 		}
+		for (j = 0; j < check; j++)
+			free(exec_Args[j]);
+		free(exec_Args);
 	}
+
 	else
 	{
-		if (!homeDir)
-		{
-			homeDir = getCwd(oldDirectory, 128);
-		}
-		return (setWorkingDirectory(data, homeDir));
+		int status;
+
+		waitpid(child_pid, &status, 0);
+		*last_status = status;
 	}
 	return (0);
 }
+
 /**
- * setWorkingDirectory - Set the working directory.
- * @data: Struct for the program's data.
- * @newDir: Path to be set as the work directory.
- * Return: Zero on success or other number if declared in the arguments.
+ * handle_cd - function to handle CD command
+ * @mycmd: the command at the first index
+ * @args: the command to execute
+ * @check: the number of token return
+ * @last_status: the variable that keeps the value of return
+ * @envp: parent environment
+ * Return: 0 for success
  */
-int setWorkingDirectory(shellData *data, char *newDir)
+int handle_cd(char *mycmd, char *args[], int check,
+		int *last_status, char *envp[])
 {
-	char oldDirectory[128] = {0};
-	int errCode = 0;
-
-	getCwd(oldDirectory, 128);
-
-	if (!compareStrings(oldDirectory, newDir, 0))
+	if (chk_cmd_before_fork(mycmd) == 1 && check > 0 &&
+		s_strcmp(args[0], "cd") == 0)
 	{
-		errCode = changeDir(newDir);
-		if (errCode == -1)
+		int outcome = cd_dir(args[1], envp);
+
+		if (outcome == 0)
 		{
-			setErrnoValue(2);
-			return (3);
+			*last_status = 0;
+			return (0);
 		}
-		setEnvironmentVariable("PWD", newDir, data);
+		*last_status = -1;
+		return (-1);
 	}
-	setEnvironmentVariable("OLDPWD", oldDirectory, data);
-	return (0);
+	return (1);
 }
+
 /**
- * executeHelpCommand - Show help information.
- * @data: Struct for the program's data.
- * Return: Zero on success or other number if declared in the arguments.
+ * handle_exit - funcnction to handle exit command
+ * @args: the command pass to execute
+ * @check: the number of token return
+ * Return: 0 for success and 1 otherwise
  */
-int executeHelpCommand(shellData *data)
+int handle_exit(char *args[], int check)
 {
-	int i, length = 0;
-	char *messages[6] = {NULL};
-
-	messages[0] = "Help: ";
-	messages[1] = "exit: Exit the shell";
-	messages[2] = "env: Show the current environment";
-	messages[3] = "setenv: Set an environment variable";
-	messages[4] = "unsetenv: Unset an environment variable";
-	messages[5] = "cd: Change the current directory";
-
-	if (data->tokens[1] == NULL)
+	if (check > 0 && s_strcmp(args[0], "exit") == 0)
 	{
-		printMessage(messages[0] + 6);
-		return (1);
-	}
-	if (data->tokens[2] != NULL)
-	{
-		setErrnoValue(EDQUOT);
-		printErrorMessage(data->commandName);
-		return (5);
-	}
-	for (i = 0; messages[i]; i++)
-	{
-		length = strLength(data->tokens[1]);
-		if (compareStrings(data->tokens[1], messages[i], length))
+		if (check == 1)
+			exit(0);
+		else if (check == 2)
 		{
-			printMessage(messages[i] + length + 1);
-			return (1);
+			char *exitarg = args[1];
+
+			if (ispositiveInt(exitarg))
+			{
+				int code = atoi(exitarg);
+
+				if (code >= 0)
+					exit(code);
+			}
+
+			exit(2);
 		}
 	}
-	setErrnoValue(EINVAL);
-	printErrorMessage(data->commandName);
-	return (0);
+	return (1);
 }
+
 /**
- * executeManageAliases - Add, remove, or show aliases.
- * @data: Struct for the program's data.
- * Return: Zero on success or other number if declared in the arguments.
+ * handle_setenv - function to handle setenv command
+ * @mycmd: the command at first index
+ * @args: the command to execute
+ * @check: the number of token return
+ * @last_status: the variable that keeps the value of return
+ * Return: 0 on success
  */
-int executeManageAliases(shellData *data)
+int handle_setenv(char *mycmd, char *args[],
+		int check, int *last_status)
 {
-	int i = 0;
-
-	if (data->tokens[1] == NULL)
+	if (chk_cmd_before_fork(mycmd) == 1 && check > 0 &&
+		s_strcmp(args[0], "setenv") == 0)
 	{
-		return (printAlias(data, NULL));
-	}
+		int env_rs = setenv_cmd(mycmd);
 
-	while (data->tokens[++i])
-	{
-		if (countChars(data->tokens[i], "="))
+		if (env_rs == 0)
 		{
-			setAlias(data->tokens[i], data);
+			*last_status = 0;
+			return (0);
 		}
-		else
-		{
-			printAlias(data, data->tokens[i]);
-		}
+		*last_status = -1;
+		return (-1);
 	}
-	return (0);
+	return (1);
 }
 
+/**
+ * handle_unsetenv - function to handle unsetenv command
+ * @mycmd: the command at first index
+ * @args: the command to execute
+ * @check: the number of token return
+ * @last_status: the variable that keeps the value of return
+ * Return: 0 on success
+ */
+int handle_unsetenv(char *mycmd, char *args[],
+		int check, int *last_status)
+{
+	if (chk_cmd_before_fork(mycmd) == 1 && check > 0 &&
+		s_strcmp(args[0], "unsetenv") == 0)
+	{
+		int unset_rs = unsetenv_cmd(mycmd);
+
+		if (unset_rs == 0)
+		{
+			*last_status = 0;
+			return (0);
+		}
+		*last_status = -1;
+		return (-1);
+	}
+	return (1);
+}

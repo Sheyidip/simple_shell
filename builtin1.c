@@ -1,89 +1,92 @@
 #include "shell.h"
-/**
- * showEnvironment - Display the current environment of the shell.
- * @data: Pointer to the shell's data structure.
- * Return: 0 on success, or another value if specified in the arguments.
- */
-int showEnvironment(shellData *data)
-{
-	int index;
-	char variableName[50] = {'\0'};
-	char *variableCopy = NULL;
 
-	if (data->tokens[1] == NULL)
+/**
+ * prompt - function to print $
+ * @c: character pass
+ * @len: length of the string
+ * Return: void
+ */
+void prompt(char *c, int len)
+{
+	if (isatty(STDIN_FILENO))
+		write(STDOUT_FILENO, c, len);
+}
+
+/**
+ * take_input - function to take command input
+ * @input: th command to use
+ * Return: return void
+ */
+ssize_t take_input(char *input)
+{
+	ssize_t read_bytes = read(STDIN_FILENO, input, INPUT_SIZE);
+
+	return ((read_bytes == -1) ? -1
+		: (read_bytes == 0) ? 0
+		: (input[read_bytes] = '\0', read_bytes));
+}
+
+/**
+ * exitShell - function to create an exitfunction
+ * @status: the status code if any
+ * Return: void
+ */
+void exitShell(int status)
+{
+	exit(status);
+}
+
+
+/**
+ * chk_cmd_before_fork - function to check before creating fork
+ * @user_command: the command to check
+ * Return: 0 for success and 1 otherwise
+ */
+int chk_cmd_before_fork(char *user_command)
+{
+	char *path_lookup, *duplicate, *store_path;
+
+	path_lookup = getenv("PATH");
+
+	if (path_lookup == NULL)
+		return (-1);
+
+	duplicate = s_strdup(path_lookup);
+	if (duplicate == NULL)
+		return (-1);
+
+	store_path = strtok(duplicate, ":");
+
+	for (; store_path != NULL ;)
 	{
-		displayEnvironment(data);
-	}
-	else
-	{
-		for (index = 0; data->tokens[1][index]; index++)
+		char abs_path[PATH_SIZE];
+
+		s_strcpy(abs_path, store_path);
+		s_strcat(abs_path, "/");
+		s_strcat(abs_path, user_command);
+
+		if (access(abs_path, X_OK) == 0)
 		{
-			if (data->tokens[1][index] == '=')
-			{
-				variableCopy = duplicateEnvironmentVariable(variableName, data);
-
-				if (variableCopy != NULL)
-					modifyEnvironmentVariable(variableName, data->tokens[1] + index + 1, data);
-				displayEnvironment(data);
-
-				if (getEnvironmentVariable(variableName, data) == NULL)
-				{
-					printMessage(data->tokens[1]);
-					printMessage("\n");
-				}
-				else
-				{
-					restoreEnvironmentVariable(variableName, variableCopy, data);
-					free(variableCopy);
-				}
-				return (0);
-			}
-			variableName[index] = data->tokens[1][index];
+			free(duplicate);
+			return (0);
 		}
-		setErrnoValue(2);
-		printErrorMessage(data->commandName);
-		setErrnoValue(127);
+		store_path = strtok(NULL, ":");
 	}
-	return (0);
-}
-/**
- * setEnvironmentVariable - Set a new environment variable.
- * @data: Pointer to the shell's data structure.
- * Return: 0 on success, or another value if specified in the arguments.
- */
-int setEnvironmentVariable(shellData *data)
-{
-	if (data->tokens[1] == NULL || data->tokens[2] == NULL)
-	{
-		return (0);
-	}
-	if (data->tokens[3] != NULL)
-	{
-		setErrnoValue(EDQUOT);
-		printErrorMessage(data->commandName);
-		return (42);
-	}
-	defineEnvironmentVariable(data->tokens[1], data->tokens[2], data);
-	return (0);
-}
-/**
- * unsetEnvironmentVariable - Unset an environment variable.
- * @data: Pointer to the shell's data structure.
- * Return: 0 on success, or another value if specified in the arguments.
- */
-int unsetEnvironmentVariable(shellData *data)
-{
-	if (data->tokens[1] == NULL)
-	{
-		return (0);
-	}
-	if (data->tokens[2] != NULL)
-	{
-		setErrnoValue(EINVAL);
-		printErrorMessage(data->commandName);
-		return (88);
-	}
-	eliminateEnvironmentVariable(data->tokens[1], data);
-	return (0);
+	free(duplicate);
+	return (1);
 }
 
+/**
+ * signal_handler - function to handle signal
+ * @signal: the signal
+ * Return: void
+ */
+void signal_handler(int signal)
+{
+	if (signal == SIGINT)
+	{
+		write(STDOUT_FILENO, "\n", 1);
+		prompt("$ ", s_strlen("$ "));
+		fflush(stdout);
+	}
+}

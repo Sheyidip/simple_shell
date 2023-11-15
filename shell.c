@@ -1,113 +1,92 @@
 #include "shell.h"
 
 /**
- * main - Entry point of the custom shell program.
- * @argc: Number of command line arguments.
- * @argv: Array of command line arguments.
- * @envp: Array of environment variables.
- * Return: 0 on success.
+ * main - main function Entry point
+ * @argc: t keep count the number of argument
+ * @argv: array to store the argument
+ * @envp: the parent environment
+ * Return: 0 for success 1 otherwise
  */
 int main(int argc, char *argv[], char *envp[])
 {
-	shellData data;
-	char *customPrompt = "";
+	char user_command[INPUT_SIZE];
+	ssize_t input_byte;
+	char *exp_cmd;
+	int last_status;
+	char afterquote[INPUT_SIZE];
 
-	init_shellData(&data, argc, argv, envp);
-	signal(SIGINT, handleCtrlC);
-
-	if (isInteractiveMode() && argc == 1)
+	signal(SIGINT, signal_handler);
+	while (argc)
 	{
-		errno = 2;
-		customPrompt = "CustomShell > ";
+		prompt("$ ", s_strlen("$ "));
+		input_byte = take_input(user_command);
+
+		if (input_byte == -1)
+			continue;
+		else if (input_byte == 0)
+		{
+			prompt("\n", s_strlen("\n"));
+			break;
+		}
+
+		/*user_command[strcspn(user_command, "\n")] = '\0';*/
+		remove_quote(user_command, afterquote);
+		remove_comment(afterquote);
+		exp_cmd = handle_double_dollar(afterquote);
+
+		last_status = run_command(exp_cmd, envp);
+
+		if (last_status > 0)
+		{
+			int status;
+
+			waitpid(last_status, &status, 0);
+			handle_command_exit(status, argv[0]);
+		}
+		free(exp_cmd);
+
 	}
-	errno = 0;
-	runShell(customPrompt, &data);
 	return (0);
 }
 
 /**
- * handleCtrlC - Handle the SIGINT signal (Ctrl+C) gracefully.
- * @unused: Unused parameter.
+ * remove_quote - function to remove quote
+ * @input: the inout string
+ * @output: the result
+ * Return: void
  */
-void handleCtrlC(int unused)
+void remove_quote(char *input, char *output)
 {
-	_print("\n");
-	_print("CustomShell > ");
+	int i, j = 0;
+	int insideqoute = 0;
+	int length = s_strlen(input);
+
+	for (i = 0; i < length; i++)
+	{
+		if (input[i] == '"' || input[i] == '\'')
+			insideqoute = !insideqoute;
+		else
+		{
+			output[j] = input[i];
+			j++;
+		}
+	}
+	output[j] = '\0';
 }
 
 /**
- * init_ShellData - Initialize the ShellData structure.
- * @data: Pointer to the ShellData structure.
- * @argc: Number of command line arguments.
- * @argv: Array of command line arguments.
- * @envp: Array of environment variables.
+ * ispositiveInt - function to check if input is digit
+ * @str: the string enter
+ * Return: 1 if int
  */
-void init_shellData(shellData *data, int argc, char *argv[], char *envp[])
+int ispositiveInt(char *str)
 {
-	int i = 0;
+	int index;
 
-	data->programName = argv[0];
-	data->inputLine = NULL;
-	data->commandName = NULL;
-	data->executionCounter = 0;
-
-	if (argc == 1)
+	for (index = 0; str[index] != '\0'; index++)
 	{
-		data->fileDescriptor = STDIN_FILENO;
+		if (!isdigit(str[index]))
+			return (0);
 	}
-	else
-	{
-		data->fileDescriptor = openFileDescriptor(argv[1]);
-	}
-
-	data->tokens = NULL;
-	data->environment = createEnvironment(envp);
-	data->aliasList = createAliasList();
-
-	for (; i < 20; i++)
-	{
-		data->aliasList[i] = NULL;
-	}
-}
-
-/**
- * runShell - Main loop, displaying the prompt and processing user input.
- * @prompt: The prompt string to display.
- * @data: Pointer to the ShellData structure.
- */
-void runShell(char *prompt, shellData *data)
-{
-	int errorCode = 0;
-	int stringLength = 0;
-
-	while (++(data->executionCounter))
-	{
-		_print("%s", prompt);
-		errorCode = stringLength = readInputLine(data);
-
-		if (errorCode == EOF)
-		{
-			freeShellData(data);
-			exit(errno);
-		}
-
-		if (stringLength >= 1)
-		{
-			expandAliases(data);
-			expandVariables(data);
-			tokenizeInput(data);
-
-			if (data->tokens[0])
-			{
-				errorCode = executeCommand(data);
-
-				if (errorCode != 0)
-				{
-					printErrorMessage(errorCode, data);
-				}
-			}
-
-			freeTokenData(data);
-		}
-	}
+	return (1);
 }
